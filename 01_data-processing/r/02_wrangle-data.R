@@ -1,10 +1,17 @@
 
 
 # packages ----------------------------------------------------------------
+packages <- c("tidyverse", "here", "missForest")
+groundhog_day <- "2024-01-11"
 
-library(tidyverse)
-library(here)
-library(missForest)
+# (install and) load package versions available on the specified day to try
+# to ensure reproducibility
+
+library(groundhog)
+
+groundhog::meta.groundhog(groundhog_day)
+
+groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 
 # set seed for reproducible imputation
 
