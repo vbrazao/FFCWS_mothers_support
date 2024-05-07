@@ -9,13 +9,22 @@ execute:
 ---
 
 ```{r setup}
-library(here)
-library(tidyverse)
-library(gtsummary)
-library(labelled)
+# packages ----------------------------------------------------------------
+packages <- c("tidyverse", "here", "gtsummary", "labelled")
+groundhog_day <- "2024-01-11"
+
+# (install and) load package versions available on the specified day to try
+# to ensure reproducibility
+
+library(groundhog)
+
+groundhog::meta.groundhog(groundhog_day)
+
+groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 
 # to make the tables more APA friendly. comment out this code if not desired
-library(benelib) # from devtools::install_github("benediktclaus/benelib")
+
+groundhog::groundhog.library(pkg = "github::benediktclaus/benelib", date = groundhog_day) # from devtools::install_github("benediktclaus/benelib")
 benelib::theme_gtsummary_apa(set_theme = TRUE)
 
 dat <- readRDS(file = here::here("01_data-processing", "data_private", "data_final.RDS")) |>

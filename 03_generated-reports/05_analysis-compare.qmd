@@ -10,11 +10,18 @@ execute:
 In this document we run some exploratory analyses to look into the differences in results for the national and not national samples. Inclusion criteria are otherwise the same.
 
 ```{r}
-library(here)
-library(tidyverse)
-library(gtsummary)
-library(marginaleffects)
-library(modelsummary)
+# packages ----------------------------------------------------------------
+packages <- c("tidyverse", "here", "marginaleffects", "modelsummary")
+groundhog_day <- "2024-01-11"
+
+# (install and) load package versions available on the specified day to try
+# to ensure reproducibility
+
+library(groundhog)
+
+groundhog::meta.groundhog(groundhog_day)
+
+groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 
 
 dat_imputed <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases.RDS")) |>
@@ -62,7 +69,7 @@ dat_imputed_together <- dat_imputed |>
 -   IPV on Race and Informal Support:
 
     -   no covariates: the effect of informal support is stronger in the national sample, and indistinguishable from 0 in the non-national sample
-    
+
     -   with covariates: the effect of informal support is stronger in the national sample, and indistinguishable from 0 in the non-national sample
 
 # IPV on Race
@@ -287,7 +294,7 @@ Here we do find an interaction. In the national sample Black women have fewer so
 
 # IPV on Race and Informal Support
 
-Next we look at models predicting IPV that include both race and informal support. 
+Next we look at models predicting IPV that include both race and informal support.
 
 Are the effect of race and informal support on IPV (without covariates) different across samples?
 
@@ -319,8 +326,6 @@ marginaleffects::plot_comparisons(
 ```
 
 The interaction between sample and informal support is significant. We find a stronger protective effect of informal support in the national sample.
-
-
 
 To see what would happen if we had *not* filtered out the not-national sample, we will run our models of IPV on race and all the covariates with the two separate samples and also together and look at the estimates.
 

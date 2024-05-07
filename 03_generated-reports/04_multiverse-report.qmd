@@ -8,8 +8,21 @@ bibliography: references.bib
 ---
 
 ```{r}
-suppressPackageStartupMessages(library(tidyverse))
-suppressPackageStartupMessages(library(here))
+#| warning: false
+#| message: false
+
+# packages ----------------------------------------------------------------
+packages <- c("tidyverse", "here", "rempsyc", "cowplot")
+groundhog_day <- "2024-01-11"
+
+# (install and) load package versions available on the specified day to try
+# to ensure reproducibility
+
+library(groundhog)
+
+groundhog::meta.groundhog(groundhog_day)
+
+groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 ```
 
 To arrive at our main results, we had to make many decisions that were not fully justified by theoretical or statistical considerations --- other competent researchers could have chosen differently and justified their choices equally well. To illustrate the variety of choices we made and examine the robustness of our results to these choices, we conducted a multiverse analysis, reported in this document. A multiverse analysis involves specifying different choice points in the preparation and analysis of data with respect to some question and running and reporting all analyses rather than a single path [@steegen2016]. In this document, we first describe the analysis options that comprise our multiverse analysis, then describe some conclusions based on the analysis, and finally present the multiverse results in several graphs.
@@ -623,6 +636,7 @@ results_arranged |>
 # Supplementary tables
 
 ## Total effect
+
 All specifications, focusing on the inference about the direction of the effect:
 
 ```{r}
