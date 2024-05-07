@@ -1,8 +1,16 @@
 
 # packages ----------------------------------------------------------------
+packages <- c("tidyverse", "here")
+groundhog_day <- "2024-01-11"
 
-library(tidyverse)
-library(here)
+# (install and) load package versions available on the specified day to try
+# to ensure reproducibility
+
+library(groundhog)
+
+groundhog::meta.groundhog(groundhog_day)
+
+groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 
 # get data from .rds ------------------------------------------------------
 
