@@ -1,0 +1,110 @@
+---
+title: "Descriptives - Comparison Between National Sample and Not National Sample"
+format: docx
+editor: visual
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(gtsummary)
+library(labelled)
+
+# to make the tables more APA friendly. comment out this code if not desired
+library(benelib) # from devtools::install_github("benediktclaus/benelib")
+benelib::theme_gtsummary_apa(set_theme = TRUE)
+
+dat <- readRDS(file = here::here("01_data-processing", "data_private", "data_final.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  ) |> 
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "national"
+  )
+
+dat_not_national <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_not_national.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  ) |> 
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "not national"
+  )
+
+dat_together <- dat |> 
+  dplyr::bind_rows(dat_not_national)
+
+dat_imputed <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  )|>
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "national"
+  )
+
+dat_imputed_not_national <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases_not_national.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  )|>
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "not national"
+  )
+
+dat_imputed_together <- dat_imputed |> 
+  dplyr::bind_rows(dat_imputed_not_national)
+```
+
+# Descriptives before data imputation
+
+The table below shows descriptive statistics for all variables in the sample we used for the analyses (the "national" column) as well as the sample of women who fulfilled inclusion criteria but were *not* in the national sample. Where the variable is nominal, the *p*-value calculated corresponds to a chi-square test; where the variable is continuous, the *p*-value corresponds to a two-sample Welch's *t*-test.
+
+There were some significant differences in the demographics. Our sample included a smaller proportion of Black women (54.27% vs 77.88%, *p* \< .001); a different distribution of alcohol consumption (*p* = .027), with a smaller proportion reporting that they never consumed alcohol during the pregnancy (88.86% vs 91.36%) but also a smaller proportion reporting that they consumed alcohol more than once a month (1.95% vs 2.49%); a higher proportion of employed women (42.46% vs 36.95%, *p* = .009); a lower average number of children (1.11 vs 1.34, *p* \< .001); a lower proportion of women who had received some sort of welfare in the past year (38.69% vs 44.43%, *p* = .007); a smaller average emotional IPV index (0.20 vs 0.22, *p* = .028); and a smaller proportion of women who experienced any IPV according to our binarized measure (74.07% vs 78.39%, *p* = .025). For all remaining variables, we found no significant differences between the samples.
+
+```{r}
+dat_together |> 
+  labelled::remove_var_label() |> 
+  gtsummary::tbl_summary(
+    by = sample,
+    statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
+    digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
+    type = list(
+      c(m_health, m_religious, informal_support_prop, ipv_physical_prop, ipv_controlling_prop, ipv_emotional_prop) ~ "continuous"
+    ), missing = "ifany"
+  ) |> 
+  gtsummary::add_p()
+```
+
+# Descriptives after data imputation
+
+```{r}
+dat_imputed_together |> 
+  labelled::remove_var_label() |> 
+  gtsummary::tbl_summary(
+    by = sample,
+    statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
+    digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
+    type = list(
+      c(m_health, m_religious, informal_support_prop, ipv_physical_prop, ipv_controlling_prop, ipv_emotional_prop) ~ "continuous"
+    )
+  ) |> 
+  gtsummary::add_p()
+```

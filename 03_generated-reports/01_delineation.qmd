@@ -1,0 +1,76 @@
+---
+title: "Sample Delineation"
+format: docx
+editor: visual
+execute:
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(gt)
+
+dat_delineated <- readRDS(file = here::here("01_data-processing", "data_public", "delineation.RDS"))
+```
+
+We excluded women based on the following criteria:
+
+1.  The woman is not in the national sample (and therefore we don't have weights for her).
+2.  The woman is in the 2 cities for which the questions were slightly different (and therefore our outcome measure and other items are incomplete).
+3.  The woman was not interviewed at Year 1 (and therefore we don't have information about her IPV victimization or romantic relationship at year 1).
+4.  The woman was not in a relationship that allowed us to measure IPV (i.e., the woman was neither romantically involved with the father at year 1, nor romantically involved with someone else at year 1, nor had been romantically involved with the father when the child was born).
+5.  The woman did not self-identify as either Black or White when asked about her race.
+
+The following table show the number of rows in our data that didn't meet each individual criterion.
+
+```{r}
+dat_delineated |>
+  summarise(
+    not_national_sample = sum(!(m_national_sample == 1)), 
+    not_two_cities = sum(!(m_two_cities == 1)), 
+    not_interviewed_one = sum(!(m_interviewed_one == 1)),
+    not_in_relationship = sum(!(m_in_relationship == 1)),
+    not_race = sum(!(m_race == 1))
+  ) |> 
+  pivot_longer(
+    cols = everything(),
+    names_to = "criterion",
+    values_to = "n_dont_fit"
+  ) |> 
+  gt::gt()
+```
+
+The following table shows the cumulative number of women included and excluded based on applying each criterion successively:
+
+```{r}
+dat_delineated |> 
+  # adding this to filter based on nationsal sample for the
+  # delineation in the manuscript (which shows weighted analyses)
+  dplyr::mutate(
+    fit_criterion_1 = m_national_sample == 1,
+    fit_criterion_2 = fit_criterion_1 & m_two_cities == 1,
+    fit_criterion_3 = fit_criterion_2 & m_interviewed_one == 1,
+    fit_criterion_4 = fit_criterion_3 & m_in_relationship == 1,
+    fit_criterion_5 = fit_criterion_4 & m_race == 1
+  ) |> 
+  dplyr::summarise(
+    dplyr::across(
+      .cols = starts_with("fit_"),
+      .fns = ~sum(.x)
+    )
+  ) |> 
+  pivot_longer(
+    cols = everything(),
+    names_to = "criterion",
+    values_to = "n_cumulative_fit"
+  ) |> 
+  mutate(
+    n_cumulative_dont_fit = nrow(dat_delineated) - n_cumulative_fit
+  ) |> 
+  gt::gt()
+```
+
+As we can see, our final sample included 1955 rows, meaning that 2943 women were excluded based on the criteria.

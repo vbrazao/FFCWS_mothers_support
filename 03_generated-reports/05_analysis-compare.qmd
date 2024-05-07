@@ -1,0 +1,381 @@
+---
+title: "Sample Comparative Analysis"
+format: docx
+editor: visual
+execute:
+  echo: false
+  message: false
+---
+
+In this document we run some exploratory analyses to look into the differences in results for the national and not national samples. Inclusion criteria are otherwise the same.
+
+```{r}
+library(here)
+library(tidyverse)
+library(gtsummary)
+library(marginaleffects)
+library(modelsummary)
+
+
+dat_imputed <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  )|>
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "national"
+  )
+
+dat_imputed_not_national <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases_not_national.RDS")) |>
+  select(
+    starts_with("m_"),
+    ends_with("prop"),
+    -contains("sample")
+  )|>
+  dplyr::mutate(
+    ipv_binary = ifelse(ipv_prop > 0, 1, 0),
+    informal_support_binary = ifelse(informal_support_prop == 1, 1, 0), 
+    sample = "not national"
+  )
+
+dat_imputed_together <- dat_imputed |> 
+  dplyr::bind_rows(dat_imputed_not_national)
+```
+
+# Summary
+
+-   IPV on Race:
+
+    -   no covariates: results practically the same; formal tests of interactions not significant
+
+    -   with covariates: results practically the same; formal tests of interactions not significant
+
+-   Informal support on Race:
+
+    -   no covariates: very weak evidence that the relationship is stronger in the national sample
+
+    -   with covariates: weak evidence that the relationship is stronger in the national sample; in the not-national sample, Black women have slightly *more* supports, while they have *fewer* supports in the national sample
+
+-   IPV on Race and Informal Support:
+
+    -   no covariates: the effect of informal support is stronger in the national sample, and indistinguishable from 0 in the non-national sample
+    
+    -   with covariates: the effect of informal support is stronger in the national sample, and indistinguishable from 0 in the non-national sample
+
+# IPV on Race
+
+First, is the rate of IPV in general different across samples?
+
+```{r}
+m1 <- lm(ipv_prop ~ 0 + sample,
+         data = dat_imputed_together)
+
+summary(m1)
+
+marginaleffects::avg_predictions(
+  m1,
+  hypothesis = "pairwise",
+  variables = "sample"
+)
+```
+
+The rates are very very similar.
+
+Is the effect of race on IPV (without covariates) different across samples?
+
+```{r}
+m2 <- lm(
+  ipv_prop ~ m_race*sample,
+  data = dat_imputed_together
+)
+
+summary(m2)
+
+marginaleffects::avg_comparisons(
+  m2,
+  variables = "m_race",
+  by = "sample"
+)
+
+marginaleffects::plot_comparisons(
+  m2,
+  variables = "m_race",
+  by = "sample"
+)
+```
+
+We can see that IPV is a little higher for Black women in both samples, with no meaningful difference between samples.
+
+To see what would happen if we had *not* filtered out the not-national sample, we will run our models of IPV on race and all the covariates with the two separate samples and also together and look at the estimates.
+
+```{r}
+m3_nat <- lm(
+  formula = ipv_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed,
+)
+
+m3_notnat <- lm(
+  formula = ipv_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_not_national,
+)
+
+m3_both <- lm(
+  formula = ipv_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+modelsummary::modelsummary(
+  models = list("National" = m3_nat,
+                "Not National" = m3_notnat,
+                "Together" = m3_both),
+  statistic = c("conf.int", "p = {p.value}"),
+  vcov = sandwich::vcovHC
+)
+```
+
+We notice that the estimate for the effect of race is 10 times larger in the non-national sample, but the confidence interval is very large too, more than overlapping with the CI from the national sample. Still, we can run a model with an interaction between race and sample and all the covariates.
+
+```{r}
+m4 <- lm(
+  formula = ipv_prop ~ m_race*sample +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+summary(m4)
+
+marginaleffects::plot_comparisons(
+  m4,
+  variables = "m_race",
+  by = "sample"
+)
+```
+
+Here, too, we see no evidence that the non-national sample diverges in any interesting way from the national sample.
+
+# Informal support on race
+
+First, is the rate of informal support in general different across samples?
+
+```{r}
+m5 <- lm(informal_support_prop ~ 0 + sample,
+         data = dat_imputed_together)
+
+summary(m5)
+
+marginaleffects::avg_predictions(
+  m5,
+  hypothesis = "pairwise",
+  variables = "sample"
+)
+```
+
+The rates are very similar.
+
+Is the effect of race on informal support (without covs) very different across samples?
+
+```{r}
+m6 <- lm(
+  informal_support_prop ~ m_race*sample,
+  data = dat_imputed_together
+)
+
+summary(m6)
+
+marginaleffects::avg_comparisons(
+  m6,
+  variables = "m_race",
+  by = "sample"
+)
+
+marginaleffects::plot_comparisons(
+  m6,
+  variables = "m_race",
+  by = "sample"
+)
+```
+
+Here we see slightly bigger differences. It seems that in the national sample there is a stronger effect of race on informal support, although the interaction is not significant.
+
+To see what would happen if we had *not* filtered out the not-national sample, we will run our models of informal support on race and all the covariates with the two separate samples and also together and look at the estimates.
+
+```{r}
+m7_nat <- lm(
+  formula = informal_support_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed,
+)
+
+m7_notnat <- lm(
+  formula = informal_support_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_not_national,
+)
+
+m7_both <- lm(
+  formula = informal_support_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+modelsummary::modelsummary(
+  models = list("National" = m7_nat,
+                "Not National" = m7_notnat,
+                "Together" = m7_both),
+  statistic = c("conf.int", "p = {p.value}"),
+  vcov = sandwich::vcovHC
+)
+```
+
+Comparing estimates and R^2^, we see that our model does slightly *worse* in the not-national sample — it appears that our covariates do not explain informal support as well in the not-national sample as they do in the national sample, but this difference is rather small, and the RMSE is the same.
+
+Let's also check for an interaction between race and sample.
+
+```{r}
+m8 <- lm(
+  formula = informal_support_prop ~ m_race*sample +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+summary(m8)
+
+
+marginaleffects::avg_comparisons(
+  m8,
+  variables = "m_race",
+  by = "sample"
+)
+
+marginaleffects::avg_comparisons(
+  m8,
+  variables = "m_race",
+  by = "sample",
+  hypothesis = "pairwise"
+)
+
+marginaleffects::plot_comparisons(
+  m8,
+  variables = "m_race",
+  by = "sample"
+)
+```
+
+Here we do find an interaction. In the national sample Black women have fewer social supports, while in the not national sample they have *more* social supports (but this latter effect is not signficant). Further, we find a signficant interaction, whereas the difference between Black and White women is 0.04 points smaller in the national sample.
+
+# IPV on Race and Informal Support
+
+Next we look at models predicting IPV that include both race and informal support. 
+
+Are the effect of race and informal support on IPV (without covariates) different across samples?
+
+```{r}
+m9 <- lm(
+  ipv_prop ~ (m_race + informal_support_prop)*sample ,
+  data = dat_imputed_together
+)
+
+summary(m9)
+
+marginaleffects::avg_comparisons(
+  m9,
+  variables = "m_race",
+  by = "sample"
+)
+
+marginaleffects::avg_comparisons(
+  m9,
+  variables = list("informal_support_prop" = "minmax"),
+  by = "sample"
+)
+
+marginaleffects::plot_comparisons(
+  m9,
+  variables = list("informal_support_prop" = "minmax"),
+  by = "sample"
+)
+```
+
+The interaction between sample and informal support is significant. We find a stronger protective effect of informal support in the national sample.
+
+
+
+To see what would happen if we had *not* filtered out the not-national sample, we will run our models of IPV on race and all the covariates with the two separate samples and also together and look at the estimates.
+
+```{r}
+m10_nat <- lm(
+  formula = ipv_prop ~ m_race + informal_support_prop +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed,
+)
+
+m10_notnat <- lm(
+  formula = ipv_prop ~ m_race + informal_support_prop +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_not_national,
+)
+
+m10_both <- lm(
+  formula = ipv_prop ~ m_race + informal_support_prop +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+modelsummary::modelsummary(
+  models = list("National" = m10_nat,
+                "Not National" = m10_notnat,
+                "Together" = m10_both),
+  statistic = c("conf.int", "p = {p.value}"),
+  vcov = sandwich::vcovHC
+)
+```
+
+Here we see again that the effect of informal support is larger in the national sample. This is further confirmed if we run a model interacting race and sample and informal support and sample.
+
+```{r}
+m11 <- lm(
+  formula = ipv_prop ~ (m_race + informal_support_prop)*sample +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat_imputed_together,
+)
+
+summary(m11)
+
+marginaleffects::plot_comparisons(
+  m11,
+  variables = list("informal_support_prop" = "minmax"),
+  by = "sample"
+)
+```
+
+Here, too, we see no evidence that the non-national sample diverges in any interesting way from the national sample.

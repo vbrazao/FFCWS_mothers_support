@@ -1,0 +1,235 @@
+---
+title: "Mediation - Regression analyses, Unweighted"
+format: docx
+editor: visual
+execute:
+  message: false
+  warning: false
+---
+
+First, we load the data and the necessary packages:
+
+```{r}
+library(here)
+library(tidyverse)
+library(survey)
+library(srvyr)
+library(marginaleffects)
+library(mediation)
+
+# for the mediation simulations
+set.seed(20679593)
+
+dat <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases.RDS"))
+```
+
+# Regression Models
+
+## Race -\> IPV
+
+Without considering informal support, is race associated with different IPV rates?
+
+```{r}
+mod_race_ipv <- lm(
+  formula = ipv_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat,
+  
+)
+
+summary(mod_race_ipv)
+
+marginaleffects::avg_predictions(mod_race_ipv, variables = "m_race", vcov = "HC")
+
+marginaleffects::avg_comparisons(mod_race_ipv, variables = "m_race", vcov = "HC")
+```
+
+Without including covariates:
+
+```{r}
+mod_race_ipv_nocov <- lm(
+  formula = ipv_prop ~ m_race,
+  data = dat,
+  
+)
+
+summary(mod_race_ipv_nocov)
+
+marginaleffects::avg_predictions(mod_race_ipv_nocov, variables = "m_race", vcov = "HC")
+
+marginaleffects::avg_comparisons(mod_race_ipv_nocov, variables = "m_race", vcov = "HC")
+```
+
+## Race -\> Informal Support
+
+Is race associated with different informal support rates?
+
+```{r}
+mod_race_informal_support <- lm(
+  formula = informal_support_prop ~ m_race +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat,
+  
+)
+
+summary(mod_race_informal_support)
+
+marginaleffects::avg_predictions(mod_race_informal_support, variables = "m_race", vcov = "HC")
+marginaleffects::avg_comparisons(mod_race_informal_support, variables = "m_race", vcov = "HC")
+```
+
+Without including covariates:
+
+```{r}
+mod_race_informal_support_nocov <- lm(
+  formula = informal_support_prop ~ m_race,
+  data = dat,
+  
+)
+
+summary(mod_race_informal_support_nocov)
+
+marginaleffects::avg_predictions(mod_race_informal_support_nocov, variables = "m_race", vcov = "HC")
+marginaleffects::avg_comparisons(mod_race_informal_support_nocov, variables = "m_race", vcov = "HC")
+```
+
+## Race + Informal Support -\> IPV
+
+When using race and informal support, are they, respectively, predictive of IPV?
+
+```{r}
+mod_race_informal_support_ipv <- lm(
+  formula = ipv_prop ~ m_race + informal_support_prop +
+    m_age + m_education + m_alcohol + m_drugs +
+    m_employment + m_children + m_household_income +
+    m_home + m_welfare_last_year + m_health + m_religious,
+  data = dat,
+  
+)
+
+summary(mod_race_informal_support_ipv)
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv, variables = "m_race", vcov = "HC")
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv, variables = c("m_race", "informal_support_prop"), vcov = "HC")
+
+
+marginaleffects::avg_comparisons(mod_race_informal_support_ipv, variables = "m_race", vcov = "HC")
+
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv, variables = "informal_support_prop", vcov = "HC")
+
+marginaleffects::avg_comparisons(mod_race_informal_support_ipv, variables = list("informal_support_prop" = "minmax"), vcov = "HC")
+```
+
+Without including covariates:
+
+```{r}
+mod_race_informal_support_ipv_nocov <- lm(
+  formula = ipv_prop ~ m_race + informal_support_prop ,
+  data = dat,
+  
+)
+
+summary(mod_race_informal_support_ipv_nocov)
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv_nocov, variables = "m_race", vcov = "HC")
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv_nocov, variables = c("m_race", "informal_support_prop"), vcov = "HC")
+
+
+marginaleffects::avg_comparisons(mod_race_informal_support_ipv_nocov, variables = "m_race", vcov = "HC")
+
+
+marginaleffects::avg_predictions(mod_race_informal_support_ipv_nocov, variables = "informal_support_prop", vcov = "HC")
+
+marginaleffects::avg_comparisons(mod_race_informal_support_ipv_nocov, variables = list("informal_support_prop" = "minmax"), vcov = "HC")
+```
+
+# Models side by side
+
+Coefficients are beta coefficients,
+
+```{r}
+modelsummary::modelsummary(
+  models = list(
+    "IPV on race" = mod_race_ipv,
+    "Social support on race" = mod_race_informal_support,
+    "IPV on race and social support" = mod_race_informal_support_ipv
+  ),
+  estimate = "estimate",
+  stars = TRUE,
+  statistic = c("conf.int", "p.value"),
+  vcov = sandwich::vcovHC
+)
+```
+
+# Mediation Analysis
+
+```{r, warning = FALSE}
+mod_mediation <- mediation::mediate(
+  model.m = mod_race_informal_support,
+  model.y = mod_race_informal_support_ipv,
+  sims = 2000,
+  treat = "m_race",
+  mediator = "informal_support_prop", 
+  robustSE = TRUE
+)
+
+# summary to get the p-values
+summary(mod_mediation)
+
+# code solution to get unrounded upper confidence intervals
+# source: https://stackoverflow.com/questions/53850958/r-mediation-package-digit-behind-comma
+trace(mediation:::print.summary.mediate, 
+      at = 11,
+      tracer = quote({
+        printCoefmat <- function(x, digits) {
+          p <- x[, 4] #p-values seem to be stored rounded
+          x[, 1:3] <- sprintf("%.6f", x[, 1:3])
+          x[, 4] <- "ignore" # changed
+          print(x, quote = FALSE, right = TRUE)
+        } 
+      }),
+      print = FALSE)
+mediation:::print.summary.mediate(summary(mod_mediation))
+
+untrace(mediation:::print.summary.mediate)
+```
+
+Without including covariates
+
+```{r}
+mod_mediation <- mediation::mediate(
+  model.m = mod_race_informal_support_nocov,
+  model.y = mod_race_informal_support_ipv_nocov,
+  sims = 2000,
+  treat = "m_race",
+  mediator = "informal_support_prop", 
+  robustSE = TRUE
+)
+
+# summary to get the p-values
+summary(mod_mediation)
+
+# code solution to get unrounded upper confidence intervals
+# source: https://stackoverflow.com/questions/53850958/r-mediation-package-digit-behind-comma
+trace(mediation:::print.summary.mediate, 
+      at = 11,
+      tracer = quote({
+        printCoefmat <- function(x, digits) {
+          p <- x[, 4] #p-values seem to be stored rounded
+          x[, 1:3] <- sprintf("%.6f", x[, 1:3])
+          x[, 4] <- "ignore" # changed
+          print(x, quote = FALSE, right = TRUE)
+        } 
+      }),
+      print = FALSE)
+mediation:::print.summary.mediate(summary(mod_mediation))
+
+untrace(mediation:::print.summary.mediate)
+```
