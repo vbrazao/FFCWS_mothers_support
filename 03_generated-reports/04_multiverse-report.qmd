@@ -5,6 +5,7 @@ editor: visual
 execute:
   echo: false
 bibliography: references.bib
+csl: apa.csl
 ---
 
 ```{r}
