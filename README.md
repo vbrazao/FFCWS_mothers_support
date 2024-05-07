@@ -34,6 +34,6 @@ The following is a set of instructions for those who would like to reproduce our
 -   Open the R Project (double-clicking the `FFCWS_fathers_employment.Rproj` file).
 -   Run the script `00_data/00_import-data.R`. **IMPORTANT: Because we are using the `groundhog` package, you might have to run each script twice - first `groundhog` does some magic, then it asks you in the console to restart R, and then the script should run fully and as normal.**
 -   Run the remaining scripts in order. Beware that the script to generate the multiverse will take a while and use all available cores. To be clear, this is the intended order:
-    1.  In folder `01_data-processing/r`, first run `01_delineate-sample.R`, then run `02_wrangle-data.R`.
-    2.  In folder `02_analysis-codes/r` run `01_generate-multiverse.R`. Raise the volume on your laptop and wait for the "beep" that will signal the end of the computations.
+    1.  In folder `01_data-processing/r`, first run `01_delineate-sample.R`, then run `02_wrangle-data.R` and finally `02_wrangle-data-not-national.R`.
+    2.  In folder `02_analysis-codes/r` run `01_generate-multiverse.R`. Raise the volume on your laptop and wait for the "beep" that will signal the end of the computations. Do the same for `02_generate-multiverse-SS.R`.
 -   In folder `03_generated-reports` open each `.qmd` file in ascending numerical order and render the files to generate the `.docx` documents. You should be able to change the output format to `html` if you prefer.
