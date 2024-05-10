@@ -10,7 +10,7 @@ execute:
 
 ```{r setup}
 # packages ----------------------------------------------------------------
-packages <- c("tidyverse", "here", "gtsummary", "labelled")
+packages <- c("tidyverse", "here", "gtsummary", "labelled", "survey", "srvyr")
 groundhog_day <- "2024-01-11"
 
 # (install and) load package versions available on the specified day to try
@@ -30,32 +30,62 @@ benelib::theme_gtsummary_apa(set_theme = TRUE)
 dat <- readRDS(file = here::here("01_data-processing", "data_private", "data_final.RDS")) |>
   select(
     starts_with("m_"),
+    starts_with("m1natwt"),
     ends_with("prop"),
     -contains("sample")
   ) |> 
   dplyr::mutate(
     ipv_binary = ifelse(ipv_prop > 0, 1, 0),
     informal_support_binary = ifelse(informal_support_prop == 1, 1, 0)
+  ) |> 
+  labelled::remove_var_label()
+
+dat_weights <- dat |> 
+  srvyr::as_survey_rep(
+    repweights = dplyr::contains("_rep"),
+    weights = m1natwt,
+    combined_weights = TRUE,
+    # why: https://stats.stackexchange.com/questions/409463/duplicating-stata-survey-design-using-svrepdesign-from-survey-package-in-r
+    type = "JKn",
+    scales = 1,
+    rscales = 1,
+    mse = TRUE
   )
 
 dat_imputed <- readRDS(file = here::here("01_data-processing", "data_private", "data_final_imputed_cases.RDS")) |> 
   select(
     starts_with("m_"),
+    starts_with("m1natwt"),
     ends_with("prop"),
     -contains("sample")
   )|> 
   dplyr::mutate(
     ipv_binary = ifelse(ipv_prop > 0, 1, 0),
     informal_support_binary = ifelse(informal_support_prop == 1, 1, 0)
+  ) |> 
+  labelled::remove_var_label()
+
+dat_imputed_weights <- dat_imputed |> 
+  srvyr::as_survey_rep(
+    repweights = dplyr::contains("_rep"),
+    weights = m1natwt,
+    combined_weights = TRUE,
+    # why: https://stats.stackexchange.com/questions/409463/duplicating-stata-survey-design-using-svrepdesign-from-survey-package-in-r
+    type = "JKn",
+    scales = 1,
+    rscales = 1,
+    mse = TRUE
   )
 ```
 
 # Descriptives before data imputation
 
+## Unweighted
+
 ```{r}
 dat |> 
-  labelled::remove_var_label() |> 
   gtsummary::tbl_summary(
+    include = -starts_with("m1natwt"),
     statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
     digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
     type = list(
@@ -64,12 +94,12 @@ dat |>
   )
 ```
 
-## Comparing Black and White mothers
+### Comparing Black and White mothers
 
 ```{r}
 dat |> 
-  labelled::remove_var_label() |> 
   gtsummary::tbl_summary(
+    include = -starts_with("m1natwt"),
     statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
     by = m_race,
     digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
@@ -80,12 +110,28 @@ dat |>
   gtsummary::add_p()
 ```
 
+## Weighted
+
+```{r}
+dat_weights |> 
+  gtsummary::tbl_svysummary(
+    include = -starts_with("m1natwt"),
+    statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
+    digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
+    type = list(
+      c(m_health, m_religious, informal_support_prop, ipv_physical_prop, ipv_controlling_prop, ipv_emotional_prop) ~ "continuous"
+    ), missing = "ifany"
+  )
+```
+
 # Descriptives after data imputation
+
+## Unweighted
 
 ```{r}
 dat_imputed |> 
-  labelled::remove_var_label() |> 
   gtsummary::tbl_summary(
+    include = -starts_with("m1natwt"),
     statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
     digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
     type = list(
@@ -94,14 +140,14 @@ dat_imputed |>
   )
 ```
 
-## Comparing Black and White mothers
+### Comparing Black and White mothers
 
 We find various differences in the distributions of our outcomes and covariates between Black and White mothers. Black mothers are slightly younger, less likely to have finished high school, more likely to never have consumed alcohol or have consumed it more than once a month, more likely to have consumed drugs at least once a month, more likely to be unemployed, have more children or average, have lower household income, are more likely to have received welfare in the previous year, report higher levels of religious attendance, report lower levels of general health, are more likely to rent rather than own their home, have lower access to informal support, and report higher levels of IPV (a difference that is signficant in the imputed dataset but not in the original dataset with missing values).
 
 ```{r}
 dat_imputed |> 
-  labelled::remove_var_label() |> 
   gtsummary::tbl_summary(
+    include = -starts_with("m1natwt"),
     statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
     by = m_race,
     digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
@@ -110,4 +156,18 @@ dat_imputed |>
     )
   ) |> 
   gtsummary::add_p()
+```
+
+## Weighted
+
+```{r}
+dat_imputed_weights |> 
+  gtsummary::tbl_svysummary(
+    include = -starts_with("m1natwt"),
+    statistic = list(all_continuous() ~ "{mean} ({sd}), {min} - {max}"),
+    digits = list(all_continuous() ~ 2, all_categorical() ~ 2),
+    type = list(
+      c(m_health, m_religious, informal_support_prop, ipv_physical_prop, ipv_controlling_prop, ipv_emotional_prop) ~ "continuous"
+    )
+  )
 ```
