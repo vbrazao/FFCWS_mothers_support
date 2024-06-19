@@ -1,6 +1,10 @@
 ---
-title: "Multiverse report"
-format: docx
+title: "Mothers' Analysis - Multiverse report"
+format: 
+  html:
+    toc: true
+  docx: 
+    toc: false
 editor: visual
 execute:
   echo: false
@@ -14,7 +18,7 @@ csl: apa.csl
 
 # packages ----------------------------------------------------------------
 packages <- c("tidyverse", "here", "rempsyc", "cowplot")
-groundhog_day <- "2024-01-11"
+groundhog_day <- "2024-04-22"
 
 # (install and) load package versions available on the specified day to try
 # to ensure reproducibility
@@ -26,21 +30,198 @@ groundhog::meta.groundhog(groundhog_day)
 groundhog::groundhog.library(pkg = packages, date = groundhog_day)
 ```
 
-To arrive at our main results, we had to make many decisions that were not fully justified by theoretical or statistical considerations --- other competent researchers could have chosen differently and justified their choices equally well. To illustrate the variety of choices we made and examine the robustness of our results to these choices, we conducted a multiverse analysis, reported in this document. A multiverse analysis involves specifying different choice points in the preparation and analysis of data with respect to some question and running and reporting all analyses rather than a single path [@steegen2016]. In this document, we first describe the analysis options that comprise our multiverse analysis, then describe some conclusions based on the analysis, and finally present the multiverse results in several graphs.
+```{r}
+mediation_results <- readRDS(here::here("02_analysis-codes", "outputs", "multi_mediation_results.RDS")) |> 
+  dplyr::mutate(
+    significant = case_when(
+      p.value < .05 ~ "Yes",
+      p.value >= .05 ~ "No"
+    ) |> factor()
+  )
+
+mediation_params <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_M_parameters.RDS"))
+
+ipv_results <- readRDS(here::here("02_analysis-codes", "outputs", "multi_ipv_results.RDS")) |> 
+  dplyr::mutate(
+    significant = case_when(
+      p.value < .05 ~ "Yes",
+      p.value >= .05 ~ "No"
+    ) |> factor()
+  )
+
+ipv_params <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_parameters_ipv.RDS"))
+
+ss_results <- readRDS(here::here("02_analysis-codes", "outputs", "multi_ss_results.RDS")) |> 
+  dplyr::mutate(
+    significant = case_when(
+      p.value < .05 ~ "Yes",
+      p.value >= .05 ~ "No"
+    ) |> factor()
+  )
+
+ss_params <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_parameters_ss.RDS"))
+
+# functions
+
+# for digits in the table
+format.fun <- function(x) {
+  formatC(x, format = "f", digits = 3)
+}
+
+# to create the table
+make_table <- function(results, m_params, only.sig = FALSE, outcome.omit = FALSE){
+  
+  if(only.sig){
+    results <- results |> 
+    dplyr::filter(
+      p.value < .05
+    )
+  }
+  
+  if(outcome.omit){
+    results <- results |> 
+      dplyr::select(
+        universe = .universe,
+        names(m_params), -outcome,
+        estimate, p.value
+    )
+  } else {
+    results <- results |> 
+      dplyr::select(
+        universe = .universe,
+        names(m_params),
+        estimate, p.value
+    )
+  }
+  
+  tab <- results |> 
+    dplyr::rename_with(
+      .fn = ~ paste0("Specification option.", .x),
+      .cols = -c(universe, estimate, p.value)
+    ) 
+  
+  estimate.col <- ncol(tab) - 1
+  
+  tab %>% 
+    rempsyc::nice_table(
+      .,
+      note = "* p < .05, ** p < .01, *** p < .001",
+      separate.header = TRUE, italics = seq(.),
+      col.format.custom = estimate.col, format.custom = "format.fun"
+    )
+}
+
+# to create the specifications plots
+make_spec_plot <- function(results, m_params, outcome.omit = TRUE, ...){
+  
+  if(outcome.omit){
+    results <- results |>
+      dplyr::select(order, all_of(names(m_params)), significant, -outcome) |> 
+      tidyr::pivot_longer(cols = -c(order, significant), names_to = "parameter_name", values_to =  "parameter_option") |> 
+      dplyr::select( order, parameter_name, parameter_option, significant) |> 
+      dplyr::filter(parameter_name != "outcome") |> 
+      dplyr::mutate(
+        parameter_name = factor(parameter_name) |> 
+          forcats::fct_relevel("covariates", "weights", "proportion", "missing" )
+      ) 
+  } else {
+    results <- results |>
+      dplyr::select(order, all_of(names(m_params)), significant) |> 
+      tidyr::pivot_longer(cols = -c(order, significant), names_to = "parameter_name", values_to =  "parameter_option") |> 
+      dplyr::select( order, parameter_name, parameter_option, significant) |> 
+      dplyr::mutate(
+        parameter_name = factor(parameter_name) |> 
+          forcats::fct_relevel("covariates", "weights", "proportion", "missing" )
+      )     
+  }
+  
+  plot <- results |> 
+    ggplot() +
+    geom_point( aes(x = order, y = parameter_option, color = significant), size = 0.5 ) +
+    labs( x = "", y = "specification option") + 
+    facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
+    coord_cartesian(xlim = c(1, max(results$order)))  +
+    scale_color_viridis_d(drop = FALSE, option = "plasma", end = .5) + 
+    theme(
+      strip.background = element_rect(fill = NA, colour = NA),
+      strip.text.y = element_blank(), 
+      legend.position = "none",
+      axis.text.x = element_blank(),
+      axis.ticks.x=element_blank()
+        )
+  
+  return(plot)
+}
+
+# to create the results plots 
+make_res_plot <- function(results, facet.term = FALSE, ...){
+
+  if(facet.term){
+    plot <- results |> 
+      ggplot(aes(x = order, y = estimate, ymax = conf.high, ymin = conf.low, color = significant)) +
+      geom_point() +
+      geom_errorbar() +
+      geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
+      labs(
+        x = "",
+      ) +
+      scale_color_viridis_d(drop = FALSE, option = "plasma", end = .5) + 
+      facet_grid(term ~ ., scales="free_y") +
+      coord_cartesian(xlim = c(1, max(results$.universe))) +
+      theme(
+        axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank()
+      ) 
+  } else {
+    plot <- results |> 
+      ggplot(aes(x = order, y = estimate, ymax = conf.high, ymin = conf.low, color = significant)) +
+      geom_point() +
+      geom_errorbar() +
+      geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
+      labs(
+        x = "",
+      ) +
+      scale_color_viridis_d(drop = FALSE, option = "plasma", end = .5) + 
+      coord_cartesian(xlim = c(1, max(results$order))) +
+      theme(
+        axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank()
+      ) 
+  }
+  
+  return(plot)
+}
+
+# to create the two panel plots
+make_plot <- function(results, ...){
+  plot <- cowplot::plot_grid(
+    make_res_plot(results, ...), 
+    make_spec_plot(results, ...), 
+    axis = "bltr",  align = "v", ncol = 1, 
+    rel_heights = c(1, 1)
+  )
+  
+  return(plot)
+}
+```
+
+To arrive at our main results, we had to make many decisions that were not fully justified by theoretical or statistical considerations --- other competent researchers could have chosen differently and justified their choices equally well. To illustrate the variety of choices we made and examine the robustness of our results to these choices, we conducted a multiverse analysis, reported in this document. A multiverse analysis involves specifying different choice points in the preparation and analysis of data with respect to some question and running and reporting all analyses rather than a single path [@steegen2016]. In this document, we first describe the analysis options that comprise our multiverse analysis, then describe some conclusions based on the analysis, and finally present the multiverse results in several graphs and tables.
 
 # Analysis options
 
 ## Model for proportions
 
-Our mediation analysis relies on two models, each of which predicts some proportion (the mediator model predicts the proportion of social support items the mother agreed with, and the outcome model predicts the mother's IPV score, which can range from 0 to 24 when considering all items). This type of data is often modelled with a binomial GLM, where the outcome is the proportion itself, and a \`weights\` argument specifies how many trials the proportion is out of (3 for the social support outcome, and 24 for the total IPV outcome). However, the \`mediation\` package is not made to work with these models.
+Our mediation analysis relies on two models, each of which predicts some proportion (the mediator model predicts the proportion of social support items the mother agreed with, and the outcome model predicts the mother's IPV score, which can range from 0 to 24 when considering all items). This type of data is often modelled with a binomial GLM, where the outcome is the proportion itself, and a `weights` argument specifies how many trials the proportion is out of (3 for the social support outcome, and 24 for the total IPV outcome). However, the `mediation` package is not made to work with these models.
 
 Another option is to use a "linear probability model", which just means to model a proportion (which necessarily cannot be smaller than 0 or greater than 1) as if it was normally distributed (which by definition encompasses the entire real number line). These models come with advantages (e.g., interpretability of coefficients, ease of computation of mediation effects) and disadvantages (e.g., possibility of predicting data points outside the accepted range). In keeping with common practice for the Future of Families dataset, and because of the additional arbitrariness of binarizing these variables, our main manuscript reports the linear analysis. To complement our linear analysis, we also ran logistic regressions for the mediator and outcome models after first binarizing the variables. Binary IPV was 0 if the index was 0 and 1 if the index was above 0, while binary social support was 1 if the index was 1 and 0 if it was below 1.
 
+Thus, for the sensitivity analyses relying on mediation models (those under the heading [Hypothesis 4: Indirect effect of race on IPV through informal support]), we use two different options: "continuous" and "binary". For all other sensitivity analyses we use three options: "continuous", "binary", and "binomial".
+
 ## Missing data
 
-One way to deal with missing data in the Future of Families dataset is by analysing only complete cases. However, this approach can result in a big loss of information and less precise estimates. Thus, we used a dataset where missing values were imputed using the \`missForest\` algorithm for our main analysis and complemented it with a complete case analysis in the multiverse.
+One way to deal with missing data in the Future of Families dataset is by analysing only complete cases. However, this approach can result in a big loss of information and less precise estimates. Thus, we used a dataset where missing values were imputed using the `missForest` algorithm for our main analysis and complemented it with a complete case analysis in the multiverse, leading to the two options labelled "imputed" and "complete_cases".
 
-A further option that could be explored would be a more principled missing data analysis, where the imputation method (or lack thereof) is decided based on documented assumptions about the causes of missingness (add reference?).
+A further option that could be explored would be a more principled missing data analysis, where the imputation method (or lack thereof) is decided based on documented assumptions about the causes of missingness [@daniel2012; @hughes2019].
 
 ## Sampling weights
 
@@ -54,596 +235,640 @@ It is common in the social sciences to statistically adjust for potential confou
 
 ## Outcome
 
-Our primary interest was women's total IPV scores, but we were also interested in exploring three IPV subscales (emotional, controlling, and physical IPV). Thus we ran each analysis specification three additional times, using each IPV subscale as an outcome at a time.
+Our primary interest was women's total IPV scores, but we were also interested in exploring three IPV subscales (emotional, controlling, and physical IPV). Thus we ran each analysis specification three additional times, using each IPV subscale as an outcome at a time. (This analysis option is not relevant to the multiverse reported in section [Hypothesis 2: Effect of race on informal support (Black - White)](#hypothesis-2-effect-of-race-on-informal-support-black---white) as the outcome variable for those models was social support and not IPV.)
 
-All in all, our "multiverse" consisted of the following "universes":
+All in all, our "multiverses" consisted of the following "universes":
+
+For the analyses with IPV as the outcome without relying on the mediation package:
 
 ```{r}
-universes <- tidyr::expand_grid(
-  missing = c("Imputed", "Complete cases"),
-  proportion = c("Continuous", "Binary"),
-  weights = c("Weighted", "Unweighted"),
-  covariates = c("Adjusted", "Unadjusted"),
-  total = c("Total", "Physical", "Emotional", "Controlling")
-) %>%
-  dplyr::mutate(
-    universe = 1:nrow(.)
-  ) |> 
-  dplyr::relocate(universe)
-
-universes |> knitr::kable()
+ipv_results |> 
+  dplyr::filter(comp == "ipv_race") |> 
+  select(.universe, all_of(names(ipv_params))) |> 
+  gt::gt()
 ```
 
+For the analyses with social support as the outcome:
+
 ```{r}
-mediation_results <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_results.RDS")) |>
-  dplyr::mutate(summary_med_out = purrr::map(.results, "summary_med_out")) |>
-  tidyr::unnest(cols = summary_med_out)
-m_params <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_parameters.RDS"))
+ss_results |> 
+  select(.universe, all_of(names(ss_params))) |> 
+  gt::gt()
+```
 
-mediation_results_renamed <- mediation_results |> 
-  dplyr::mutate(
-    term = dplyr::case_when(
-      term == "indirect effect" ~ "IE",
-      term == "direct effect" ~ "DE",
-      term == "total effect" ~ "TE"
-    )
-  )
+For the analyses relying on the mediation package:
 
-mediation_results_total <- mediation_results_renamed |> 
-  dplyr::filter(
-    outcome == "total"
-  ) %>%
-  dplyr::mutate(
-    .universe = rep(1:(nrow(.)/3), each = 3)
-  )
-
-mediation_results_physical <- mediation_results_renamed |> 
-  dplyr::filter(
-    outcome == "physical"
-  ) %>%
-  dplyr::mutate(
-    .universe = rep(1:(nrow(.)/3), each = 3)
-  )
-
-mediation_results_emotional <- mediation_results_renamed |> 
-  dplyr::filter(
-    outcome == "emotional"
-  ) %>%
-  dplyr::mutate(
-    .universe = rep(1:(nrow(.)/3), each = 3)
-  )
-
-mediation_results_controlling <- mediation_results_renamed |> 
-  dplyr::filter(
-    outcome == "controlling"
-  ) %>%
-  dplyr::mutate(
-    .universe = rep(1:(nrow(.)/3), each = 3)
-  )
+```{r}
+mediation_results |> 
+  dplyr::filter(term == "TE") |> 
+  select(.universe, all_of(names(mediation_params))) |> 
+  gt::gt()
 ```
 
 # Multiverse results - Summary
 
-The multiverse analysis reveals that our results are indeed quite sensitive to different specifications. Estimates vary in their magnitude, direction, width of the confidence intervals, and significance. For the total and direct effects of race on IPV, it is possible to find different analysis specifications that arrive at significant and insignificant effect estimates in the positive or negative direction. Estimates of the indirect effect are more consistent, since all but one specification result in a positive indirect effect, but the precision of the estimates and thus their significance varies widely. For example, Figure 1 shows how all estimated effects display wider confidence intervals when IPV and social support are binary rather than continuous, especially when models are weighted with the sampling weights. Further, Figures 1, 2 and 3 show that covariate-adjusted models generally result in more negative estimates than unadjusted models. All in all, however, most specifications result in estimates that are not statistically significant. For a more thorough description of what can be seen in each figure, see the paragraphs immediately below each figure.
+The multiverse analysis reveals that some of our results are indeed quite sensitive to different specifications. Estimates vary in their magnitude, direction, width of the confidence intervals, and significance. Regarding [Hypothesis 1: Effect of race on IPV (Black - White)](#hypothesis-1-effect-of-race-on-ipv-black---white), we see effects in both directions (suggesting Black women report more or less IPV), with most signficant estimates pointing to a positive association between being Black and IPV victimization. The analysis for [Hypothesis 2: Effect of race on informal support (Black - White)](#hypothesis-2-effect-of-race-on-informal-support-black---white) is much clearer, as all estimates point to Black women reporting less access to informal support, and almost all estimates are significant. For [Hypothesis 3: Effect of informal support on IPV] the picture is similar: many estimates are significant and all bar two are in the expected direction, suggesting that higher informal support is associated with less IPV victimization. Regarding [Hypothesis 4: Indirect effect of race on IPV through informal support], we again see that most estimates are in the predicted direction (being Black is associated with higher IPV and that effect runs through informal support), and close to half of the estimates are significant.
 
-Given the discussion above about the legitimacy of each analytic choice, we don't think it sensible to summarize across specifications to arrive at an "overall" effect of race. For example, summarizing the models which control for all covariates along with the models that don't control for covariates does not make sense, as covariate adjustment changes the meaning of the estimate of the effect(s) of race on IPV, so there is no meaningful way they could be averaged. Instead, we consider this process as a pedagogical tool. As Julia Rohrer put it on the 100% CI blog [@rohrer2021]:
+Given the discussion above about the legitimacy of each analytic choice, we don't think it sensible to summarize across specifications to arrive at an "overall" effect for each hypothesis. For example, summarizing the models which control for all covariates along with the models that don't control for covariates does not make sense, as covariate adjustment changes the meaning of the estimate of the effect(s) of race on IPV, so there is no meaningful way they could be averaged. Instead, we consider this process as a pedagogical tool. As Julia Rohrer put it on the 100% CI blog [@rohrer2021]:
 
 > In the end, the multiverse may prove to be most powerful as a pedagogical tool. \[...\] Multiverse analysis can raise awareness of how data analytic flexibility can be exploited. It can also alert us to gaps in our knowledge. Gaps in our knowledge about the underlying causal web: Is including that covariate arbitrary or not? What does it mean if results hinge on it? Gaps in our knowledge about statistics: Can we expect these types of models to return the same answer? Under which conditions would they diverge? Gaps in our knowledge about measurement and conceptualization: Does it make sense to expect the same result for these different operationalizations of the outcome? What does it mean if results vary? We have now closed the loop and are [back to the original multiverse paper](https://journals.sagepub.com/doi/10.1177/1745691616658637), in which the authors write: "The real conclusion of the multiverse analysis is that there is a gaping hole in theory or in measurement."
 
 # Multiverse results - Visualizations
 
-First, we visualize the full multiverse for each outcome (total, emotional, controlling, and physical IPV), looking at each effect in turn (total, direct, and indirect effects), ordering by the estimate magnitude.
+## Hypothesis 1: Effect of race on IPV (Black - White) {#hypothesis-1-effect-of-race-on-ipv-black---white}
 
-## Total effect
+Specifically, our hypothesis was formulated this way:
+
+> *Black women are more at risk of IPV victimisation than White women.*
+
+All models predict IPV and include race as the focal independent variable of interest.
 
 ```{r}
-mediation_results_TE <- mediation_results_renamed |> 
-  dplyr::filter(term == "TE") |> 
-  dplyr::arrange(estimate) |> 
-  dplyr::mutate(.universe = 1:64)
-
-specifications_plot <- mediation_results_TE |> 
-  dplyr::select(.universe, all_of(names(m_params))) |> 
-  tidyr::pivot_longer(cols = all_of(names(m_params)), names_to = "parameter_name", values_to =  "parameter_option") |> 
-  dplyr::select( .universe, parameter_name, parameter_option) |> 
-  dplyr::mutate(
-    parameter_name = factor(str_replace(parameter_name, "_", "\n"))
-  ) |> 
-  ggplot() +
-  geom_point( aes(x = .universe, y = parameter_option, color = parameter_name), size = 0.5 ) +
-  labs( x = "universe #", y = "specification option") + 
-  facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
-  coord_cartesian(xlim = c(1, 64)) +
-  theme(
-    strip.background = element_rect(fill = NA, colour = NA),
-    strip.text.y = element_blank(), 
-    legend.position = "none"
-      )
-  
-results_plot <- mediation_results_TE |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 1", 
-    subtitle = "Total Effect of Race by Specification"
-  ) +
-  coord_cartesian(xlim = c(1, 64)) +
-  theme(
-    axis.text.x=element_blank(),
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
+results_ipv_race <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race") |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
 ```
 
-In Figure 1 we can see that the majority of specifications result in an estimate for the total effect of race on IPV that is not statistically significant. Of note, covariate-adjusted models tend to result in slightly more negative effect sizes, and almost all models that lead to a negative effect size are covariate-adjusted. The handling of missing data doesn't seem to have a systematic effect. There seems to be no particular pattern regarding the chosen outcome measure. Models with binarized IPV and social support tend to show smaller confidence intervals, and almost all models with significant estimates are binarized. Estimates from models employing survey weights have wider confidence intervals and are therefore less likely to be significant, all else being equal.
+```{r}
+#| label: fig-ipv-race
+#| fig-cap: "Effect of Race on IPV by Specification"
+
+make_plot(results_ipv_race, m_params = ipv_params, outcome.omit = FALSE)
+```
+
+The graph (and table below) reveal that there is some variability in the estimated effect, with significant estimates pointing in both directions.
 
 Specifications for which there is a significant effect:
 
 ```{r}
-mediation_results_TE |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
+#| label: tbl-ipv-race-sig
+#| tbl-cap: "Specifications with a significant effect of race on IPV"
+
+make_table(results_ipv_race, m_params = ipv_params, only.sig = TRUE, outcome.omit = FALSE)
 ```
 
-## Direct effect
+### Total IPV
 
 ```{r}
-mediation_results_DE <- mediation_results_renamed |> 
-  dplyr::filter(term == "DE") |> 
-  dplyr::arrange(estimate) |> 
-  dplyr::mutate(.universe = 1:64)
-
-specifications_plot <- mediation_results_DE |> 
-  dplyr::select(.universe, all_of(names(m_params))) |> 
-  tidyr::pivot_longer(cols = all_of(names(m_params)), names_to = "parameter_name", values_to =  "parameter_option") |> 
-  dplyr::select( .universe, parameter_name, parameter_option) |> 
-  dplyr::mutate(
-    parameter_name = factor(str_replace(parameter_name, "_", "\n"))
-  ) |> 
-  ggplot() +
-  geom_point( aes(x = .universe, y = parameter_option, color = parameter_name), size = 0.5 ) +
-  labs( x = "universe #", y = "specification option") + 
-  facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
-  coord_cartesian(xlim = c(1, 64)) +
-  theme(
-    strip.background = element_rect(fill = NA, colour = NA),
-    strip.text.y = element_blank(), 
-    legend.position = "none"
-      )
-  
-results_plot <- mediation_results_DE |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 2", 
-    subtitle = "Direct Effect of Race by Specification"
-  ) +
-  coord_cartesian(xlim = c(1, 64)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
+results_ipv_race_total <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
 ```
 
-The patterns found in Figure 1 for the total effect of race seem to hold for the direct effect of race as well (cf. Figure 2).
-
-Specifications for which there is a significant result
-
 ```{r}
-mediation_results_DE |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
+#| label: fig-total-ipv-race
+#| fig-cap: "Effect of Race on total IPV by Specification"
+
+make_plot(results_ipv_race_total, m_params = ipv_params, outcome.omit = TRUE)
 ```
 
-## Indirect effect
+Looking at total IPV, three fourths of the estimates are in the positive direction (suggesting that Black women report higher IPV), and the six significant estimates are positive. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, but otherwise estimates are comparable between linear and binomial models. Binary models tend to produce more positive estimates with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates, leading to some of them being significant even though they are not when imputed data is used.
+
+### Emotional IPV
 
 ```{r}
-mediation_results_IE <- mediation_results_renamed |> 
+results_ipv_race_emotional <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-race
+#| fig-cap: "Effect of Race on emotional IPV by Specification"
+
+make_plot(results_ipv_race_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at emotional IPV, more than three fourths of the estimates are in the positive direction (suggesting that Black women report higher IPV), and the seven significant estimates are positive. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, but otherwise estimates are comparable between linear and binomial models. Binary models tend to produce more positive estimates with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates, leading to some of them being significant even though they are not when imputed data is used.
+
+### Controlling IPV
+
+```{r}
+results_ipv_race_controlling <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-race
+#| fig-cap: "Effect of Race on controlling IPV by Specification"
+
+make_plot(results_ipv_race_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at controlling IPV, about half of the estimates are in the positive direction (suggesting that Black women report higher IPV), but the four significant estimates are positive. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models tend to produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, but otherwise estimates are comparable between linear and binomial models. Binary models tend to produce more positive estimates with greater associated uncertainty. Models run on imputed data tend to produce slightly tighter confidence intervals, leading to some of them being significant even though they are not when complete cases are used.
+
+### Physical IPV
+
+```{r}
+results_ipv_race_physical <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-race
+#| fig-cap: "Effect of Race on physical IPV by Specification"
+
+make_plot(results_ipv_race_physical, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at physical IPV, almost three fourths of the estimates are in the positive direction (suggesting that Black women report higher IPV), and the three significant estimates are positive. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models tend to produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, but otherwise estimates are comparable between linear and binomial models. Binary models tend to produce more extreme estimates with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates, leading to some of them being significant even though they are not when imputed data is used.
+
+## Hypothesis 2: Effect of race on informal support (Black - White) {#hypothesis-2-effect-of-race-on-informal-support-black---white}
+
+Specifically, our hypothesis was formulated this way:
+
+> *There is an association between race and the availability of material resources from informal social support sources. Specifically, Black women are less likely to have material resources available to them from their informal social supports than White women.*
+
+All models predict informal support and include race as the focal independent variable of interest.
+
+```{r}
+results_sup_race <- ss_results |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-sup-race
+#| fig-cap: "Effect of Race on informal support by Specification"
+
+make_plot(results_sup_race, m_params = ss_params, outcome.omit = FALSE)
+```
+
+While there is some variation in the estimates, all indicate that Black women have less access to informal supports and three fourths are statistically significant.
+
+Specifications for which there is a significant effect:
+
+```{r}
+#| label: tbl-sup-race-sig
+#| tbl-cap: "Specifications with a significant effect of race on informal support"
+
+make_table(results_sup_race, m_params = ss_params, only.sig = TRUE, outcome.omit = FALSE)
+```
+
+Plotting without ordering estimates by their magnitude:
+
+```{r}
+results_sup_race_unordered <- ss_results %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-sup-race-unordered
+#| fig-cap: "Effect of Race on informal support by Specification"
+
+make_plot(results_sup_race_unordered, m_params = ss_params, outcome.omit = FALSE)
+```
+
+All of the estimates are in the negative direction (suggesting that Black women report less access to informal support), and three fourths of them are significant. Covariate adjusted models produce less negative estimates than models without adjustment, suggesting that some of the effect of race on informal support acts through the covariates. Weighted models produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, but otherwise estimates are comparable between linear and binomial models. Binary models tend to produce more negative estimates with greater associated uncertainty. Whether we use only complete cases or impute missing values doesn't seem to make a systematic difference in our estimates.
+
+## Hypothesis 3: Effect of informal support on IPV
+
+Specifically, our hypothesis was formulated this way:
+
+> *There is an association between the availability of material resources from informal social support sources and a woman’s likelihood of IPV victimisation.*
+
+All models predict IPV and include race and informal support as the focal independent variables of interest. We also ran a multiverse analysis focusing on the (controlled) effect of race in this model, and you can find the corresponding graphs in the section [Supplement to hypothesis 3: The effect of race on IPV, controlling for social support].
+
+```{r}
+results_ipv_sup_race <- ipv_results |> 
+  dplyr::filter(comp == "ipv_sup_race") |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-ipv-sup-race
+#| fig-cap: "Effect of Informal Support on IPV by Specification"
+
+make_plot(results_ipv_sup_race, m_params = ipv_params, outcome.omit = FALSE)
+```
+
+The graph (and table below) reveal that there is some variability in the estimated effect, but the overwhelming majority of estimates are negative (suggesting that women with more access to informal support report experiencing less IPV) and the only two estimates in the other direction are not significant.
+
+Specifications for which there is a significant effect:
+
+```{r}
+#| label: tbl-ipv-sup-race-sig
+#| tbl-cap: "Specifications with a significant effect of informal support on IPV"
+
+make_table(results_ipv_sup_race, m_params = ipv_params, only.sig = TRUE, outcome.omit = FALSE)
+```
+
+### Total IPV
+
+```{r}
+results_ipv_sup_race_total <- ipv_results |> 
+  dplyr::filter(comp == "ipv_sup_race", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-total-ipv-sup-race
+#| fig-cap: "Effect of Informal Support on total IPV by Specification"
+
+make_plot(results_ipv_sup_race_total, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at total IPV, all of the estimates are in the negative direction (suggesting that women with more access to informal support report lower IPV), and more than half are significant. Covariate adjusted models produce less negative estimates than models without adjustment, suggesting that some of the effect of informal support on IPV acts through the covariates. Weighted models tend to produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, and in general estimates from linear models tend to be more positive than those from binomial models. Binary models sometimes produce more positive estimates than linear models, always with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates with larger confidence intervals, leading to some of them not being significant even though they are when imputed data is used.
+
+### Emotional IPV
+
+```{r}
+results_ipv_sup_race_emotional <- ipv_results |> 
+  dplyr::filter(comp == "ipv_sup_race", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-sup-race
+#| fig-cap: "Effect of Informal Support on emotional IPV by Specification"
+
+make_plot(results_ipv_sup_race_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at emotional IPV, all of the estimates are in the negative direction (suggesting that women with more access to informal support report lower IPV), and more than half are significant. Covariate adjusted models produce less negative estimates than models without adjustment, suggesting that some of the effect of informal support on IPV acts through the covariates. Weighted models tend to produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, and in general estimates from linear models tend to be more negative than those from binomial models. Binary models sometimes produce more positive estimates than binomial models, always with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates with larger confidence intervals, leading to some of them not being significant even though they are when imputed data is used.
+
+### Controlling IPV
+
+```{r}
+results_ipv_sup_race_controlling <- ipv_results |> 
+  dplyr::filter(comp == "ipv_sup_race", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-sup-race
+#| fig-cap: "Effect of Informal Support on controlling IPV by Specification"
+
+make_plot(results_ipv_sup_race_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at controlling IPV, all but two of the estimates are in the negative direction (suggesting that women with more access to informal support report lower IPV), and more than half are significant. Covariate adjusted models produce less negative estimates than models without adjustment, suggesting that some of the effect of informal support on IPV acts through the covariates. Weighted models tend to produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, and in general estimates from linear models tend to be more negative than those from binomial models. Binary models produce more negative estimates than linear or binomial models, always with greater associated uncertainty. Models run on complete cases tend to produce similar estimates with larger confidence intervals as compared to models using imputed data.
+
+### Physical IPV
+
+```{r}
+results_ipv_sup_race_physical <- ipv_results |> 
+  dplyr::filter(comp == "ipv_sup_race", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-sup-race
+#| fig-cap: "Effect of Informal Support on physical IPV by Specification"
+
+make_plot(results_ipv_sup_race_physical, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at physical IPV, all of the estimates are in the negative direction (suggesting that women with more access to informal support report lower IPV), and almost half are significant. Covariate adjusted models produce less negative estimates than models without adjustment, suggesting that some of the effect of informal support on IPV acts through the covariates. Weighted models tend to produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Unweighted linear models produce larger confidence intervals than the corresponding binomial models, and in general estimates from linear models tend to be more negative than those from binomial models. Binary models tend to produce more negative estimates than binomia or linear models, always with greater associated uncertainty. Models run on complete cases tend to produce slightly more positive estimates with larger confidence intervals, leading to some of them not being significant even though they are when imputed data is used.
+
+## Hypothesis 4: Indirect effect of race on IPV through informal support
+
+Specifically, our hypothesis was formulated this way:
+
+> *The availability of material resources from informal social support sources partially mediates the effect of race on IPV.*
+
+The indirect effect is estimated using the `mediation` package. We also ran a multiverse analysis focusing on the estimated total and direct effects of race in the mediation models, and the corresponding graphs can be found in the section [Supplement to hypothesis 4: Total and direct effect of race on IPV according to mediation model].
+
+```{r}
+results_med_IE <- mediation_results |> 
   dplyr::filter(term == "IE") |> 
-  dplyr::arrange(estimate) |> 
-  dplyr::mutate(.universe = 1:64)
-
-specifications_plot <- mediation_results_IE |> 
-  dplyr::select(.universe, all_of(names(m_params))) |> 
-  tidyr::pivot_longer(cols = all_of(names(m_params)), names_to = "parameter_name", values_to =  "parameter_option") |> 
-  dplyr::select( .universe, parameter_name, parameter_option) |> 
-  dplyr::mutate(
-    parameter_name = factor(str_replace(parameter_name, "_", "\n"))
-  ) |> 
-  ggplot() +
-  geom_point( aes(x = .universe, y = parameter_option, color = parameter_name), size = 0.5 ) +
-  labs( x = "universe #", y = "specification option") + 
-  facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
-  coord_cartesian(xlim = c(1, 64))  +
-  theme(
-    strip.background = element_rect(fill = NA, colour = NA),
-    strip.text.y = element_blank(), 
-    legend.position = "none"
-      )
-  
-results_plot <- mediation_results_IE |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 3", 
-    subtitle = "Indirect Effect of Race by Specification"
-  ) +
-  coord_cartesian(xlim = c(1, 64)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
-```
-
-In Figure 3 we see that estimates of the indirect (or *mediated*) effect of race overwhelmingly lean positive, indicating that Black women possibly suffer more IPV due to the effect of race on social support. Covariate-adjusted models show lower estimates in general, and almost all significant estimates come from unadjusted models --- this makes sense since some of the covariates are potential mediators and their inclusion in the model leaves less variance left for the indirect effect of race through social support to explain. Again, neither the method of handling missing data nor the outcome measure seem to have a systematic effect on the estimates. On average, models working with binarized IPV and social support seem to produce higher effect size estimates. Models employing weights produce estimates with wider confidence intervals.
-
-Specifications for which there is a significant result:
-
-```{r}
-mediation_results_IE |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
-```
-
-Next we home in on each outcome in turn, without arranging by size of estimate. In each figure, the top plot shows the direct, indirect (through social support), and total effects of race on IPV, while the bottom plot describes the corresponding specifications.
-
-```{r}
-# for the general plots, specifications in their original order
-
-specifications <- mediation_results |> 
-  # we only need this once, even though we are plotting all effects at once
-  dplyr::filter(term == "total effect", outcome == "total") |> 
-  dplyr::select(.universe, all_of(names(m_params))) %>%
-  dplyr::mutate(.universe = 1:nrow(.))
-
-specifications_plot <- specifications |> 
-  tidyr::pivot_longer(cols = all_of(names(m_params)), names_to = "parameter_name", values_to =  "parameter_option") |> 
-  dplyr::select( .universe, parameter_name, parameter_option) |> 
-  dplyr::filter(parameter_name != "outcome") |> 
-  dplyr::mutate(
-    parameter_name = factor(str_replace(parameter_name, "_", "\n"))
-  ) |> 
-  ggplot() +
-  geom_point( aes(x = .universe, y = parameter_option, color = parameter_name), size = 0.5 ) +
-  labs( x = "universe #", y = "specification option",
-    caption = "Note. For top plot: DE = Direct Effect,\nIE = Indirect Effect, TE = Total Effect") + 
-  facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
-  coord_cartesian(xlim = c(1, 16))  +
-  theme(
-    strip.background = element_rect(fill = NA, colour = NA),
-    strip.text.y = element_blank(), 
-    legend.position = "none"
-      )
-```
-
-## Total IPV
-
-```{r}
-results_plot <- mediation_results_total |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 4", 
-    subtitle = "Effects of Race on Total IPV by Specification"
-  ) +
-  facet_grid(term ~ ., scales="free_y") +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
-```
-
-Figure 4 illustrates the variability of results for Total IPV, showing mostly positive estimates (Black women seem to experience more IPV, whether directly as an effect of race or indirectly through its effect on social support), but the estimates are close to zero and mostly not significant.
-
-Specifications for which there is a significant result:
-
-```{r}
-mediation_results_total |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
-```
-
-## Emotional IPV
-
-```{r}
-results_plot <- mediation_results_emotional |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 5", 
-    subtitle = "Effects of Race on Emotional IPV by Specification"
-  ) +
-  facet_grid(term ~ ., scales="free_y") +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
-```
-
-Emotional IPV (Figure 5) paints a similar picture as total IPV (cf. Figure 4)
-
-Specifications for which there is a significant result:
-
-```{r}
-mediation_results_emotional |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
-```
-
-## Controlling IPV
-
-```{r}
-results_plot <- mediation_results_controlling |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 6", 
-    subtitle = "Effects of Race on Controlling IPV by Specification"
-  ) +
-  facet_grid(term ~ ., scales="free_y") +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
-```
-
-Controlling IPV paints a similar picture as the previous figures, although there are some more extreme estimates (Universes #6 and #14, for instance) for the indirect effect.
-
-Specifications for which there is a significant result:
-
-```{r}
-mediation_results_controlling |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
-```
-
-## Physical IPV
-
-```{r}
-results_plot <- mediation_results_physical |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 7", 
-    subtitle = "Effects of Race on Physical IPV by Specification"
-  ) +
-  facet_grid(term ~ ., scales="free_y") +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    axis.text.x=element_blank(), #remove x axis labels
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
-```
-
-When looking only at physical IPV, we see no direct effect nor a total effect of race, but some specifications show a positive indirect effect of race. Again, however, there is too much uncertainty to come to any concrete conclusions.
-
-Specifications for which there is a significant result:
-
-```{r}
-mediation_results_physical |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
-```
-
-# Additional Multiverse Analysis - Social Support
-
-Besides the multiverse analyses presented so far, we checked for the effect of our choices on the estimated effect of race on informal social support. This smaller analysis, which does not include parameters related to IPV, consisted of the following universes:
-
-```{r}
-universesSS <- tidyr::expand_grid(
-  missing = c("Imputed", "Complete cases"),
-  proportion = c("Continuous", "Binary"),
-  weights = c("Weighted", "Unweighted"),
-  covariates = c("Adjusted", "Unadjusted"),
-) %>%
-  dplyr::mutate(
-    universe = 1:nrow(.)
-  ) |> 
-  dplyr::relocate(universe)
-
-universesSS |> knitr::kable()
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
 ```
 
 ```{r}
-comp_results <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_results_SS.RDS")) |>
-  dplyr::mutate(comp_race = purrr::map(.results, "comp_race")) |>
-  tidyr::unnest(cols = comp_race)
-m_params <- readRDS(here::here("02_analysis-codes", "outputs", "multiverse_parameters_SS.RDS"))
+#| label: fig-mediation-ie
+#| fig-cap: "Indirect Effect of Race on IPV through Informal Support by Specification"
 
-results_arranged <- comp_results |> 
-  dplyr::arrange(estimate) |> 
-  dplyr::mutate(.universe = 1:16)
-
-specifications_plot <- results_arranged |> 
-  dplyr::select(.universe, all_of(names(m_params))) |> 
-  tidyr::pivot_longer(cols = all_of(names(m_params)), names_to = "parameter_name", values_to =  "parameter_option") |> 
-  dplyr::select( .universe, parameter_name, parameter_option) |> 
-  dplyr::mutate(
-    parameter_name = factor(str_replace(parameter_name, "_", "\n"))
-  ) |> 
-  ggplot() +
-  geom_point( aes(x = .universe, y = parameter_option, color = parameter_name), size = 0.5 ) +
-  labs( x = "universe #", y = "specification option") + 
-  facet_grid(parameter_name ~ ., space="free_y", scales="free_y", switch="y") +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    strip.background = element_rect(fill = NA, colour = NA),
-    strip.text.y = element_blank(), 
-    legend.position = "none"
-      )
-  
-results_plot <- results_arranged |> 
-  ggplot(aes(x = .universe, y = estimate, ymax = conf.high, ymin = conf.low, color = p.value < .05)) +
-  geom_point() +
-  geom_errorbar() +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.25) +
-  labs(
-    x = "", 
-    title = "Figure 8", 
-    subtitle = "Effect of Black Race on Social Support by Specification"
-  ) +
-  coord_cartesian(xlim = c(1, 16)) +
-  theme(
-    axis.text.x=element_blank(),
-    axis.ticks.x=element_blank()
-  )
-
-cowplot::plot_grid(
-  results_plot, 
-  specifications_plot, 
-  axis = "bltr",  align = "v", ncol = 1
-)
+make_plot(results_med_IE, m_params = mediation_params, outcome.omit = FALSE)
 ```
 
-We see that almost all specifications result in a significant negative effect of race on social support, where being Black is associated with having less access to informal supports, and no estimate is in the other direction. The estimates that are not significant share the characteristics that they come from models with covariate adjustment and sampling weights.
+The graph (and table below) reveal that there is some variability in the estimated effect, but only one (non-significant) estimate is negative while all others are positive (indicating that part of the effect of race on IPV is mediated through its effect on informal support).
 
-Specifications for which there is a significant result:
+Specifications for which there is a significant effect:
 
 ```{r}
-results_arranged |> 
-  dplyr::filter(
-    p.value < .05
-  ) |> 
-  dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  )
+#| label: tbl-mediation-ie-sig
+#| tbl-cap: "Specifications with a significant indirect effect of race on IPV through informal support"
+
+make_table(results_med_IE, m_params = mediation_params, only.sig = TRUE, outcome.omit = FALSE)
+```
+
+### Total IPV
+
+```{r}
+results_mediation_ie_total <- mediation_results |> 
+  dplyr::filter(term == "IE", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-total-ipv-mediation-ie
+#| fig-cap: "Indirect Effect of Race on total IPV through Informal Support by Specification"
+
+make_plot(results_mediation_ie_total, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at total IPV, all of the estimates are in the positive direction (suggesting that Black race contributes to IPV partly through it's effect on informal support), and almost half are significant. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models sometimes produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Binary models sometimes produce more positive estimates than linear models, always with greater associated uncertainty. Models run on complete cases sometimes produce slightly more positive estimates but with larger confidence intervals, leading to some of them not being significant even though they are when imputed data is used.
+
+### Emotional IPV
+
+```{r}
+results_mediation_ie_emotional <- mediation_results |> 
+  dplyr::filter(term == "IE", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-mediation-ie
+#| fig-cap: "Indirect Effect of Race on emotional IPV through Informal Support by Specification"
+
+make_plot(results_mediation_ie_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at emotional IPV, all of the estimates are in the positive direction (suggesting that Black race contributes to IPV partly through it's effect on informal support), and almost half are significant. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models sometimes produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Binary models sometimes produce more positive estimates than linear models when run on imputed data, but the opposite it true when run on complete cases, always with greater associated uncertainty. Models run on complete cases produce similar estimates to those run on imputed data but with larger confidence intervals, leading to some of the estimates not being significant even though they are when imputed data is used.
+
+### Controlling IPV
+
+```{r}
+results_mediation_ie_controlling <- mediation_results |> 
+  dplyr::filter(term == "IE", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-mediation-ie
+#| fig-cap: "Indirect Effect of Race on controlling IPV through Informal Support by Specification"
+
+make_plot(results_mediation_ie_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at controlling IPV, all but one of the estimates are in the positive direction (suggesting that Black race contributes to IPV partly through it's effect on informal support), and almost half are significant. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models sometimes produce more negative estimates than the equivalent unweighted models and have larger associated confidence intervals. Binary models produce more positive estimates than linear models, always with greater associated uncertainty. Models run on complete cases sometimes produce more positive estimates than those run on imputed data but with larger confidence intervals, leading to some of the estimates not being significant even though they are when imputed data is used.
+
+### Physical IPV
+
+```{r}
+results_mediation_ie_physical <- mediation_results |> 
+  dplyr::filter(term == "IE", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-mediation-ie
+#| fig-cap: "Indirect Effect of Race on physical IPV through Informal Support by Specification"
+
+make_plot(results_mediation_ie_physical, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+Looking at physical IPV, all of the estimates are in the positive direction (suggesting that Black race contributes to IPV partly through it's effect on informal support), but only a third are significant. Covariate adjusted models produce more negative estimates than models without adjustment, suggesting that some of the effect of race on IPV acts through the covariates. Weighted models sometimes produce more positive estimates than the equivalent unweighted models and have larger associated confidence intervals. Binary models produce more positive estimates than linear models, always with greater associated uncertainty. Models run on complete cases tend to produce more negative estimates than those run on imputed data, sometimes with narrower confidence intervals, leading to some of the estimates not being significant even though they are when imputed data is used.
+
+# Supplementary figures
+
+## Supplement to hypothesis 3: The effect of race on IPV, controlling for social support
+
+```{r}
+results_ipv_race_sup <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race_sup") |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-ipv-race-sup
+#| fig-cap: "Controlled Effect of Race on IPV by Specification"
+
+make_plot(results_ipv_race_sup, m_params = ipv_params, outcome.omit = FALSE)
+```
+
+### Total IPV
+
+```{r}
+results_ipv_race_sup_total <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race_sup", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-total-ipv-race-sup
+#| fig-cap: "Controlled Effect of Race on total IPV by Specification"
+
+make_plot(results_ipv_race_sup_total, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+### Emotional IPV
+
+```{r}
+results_ipv_race_sup_emotional <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race_sup", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-race-sup
+#| fig-cap: "Controlled Effect of Race on emotional IPV by Specification"
+
+make_plot(results_ipv_race_sup_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+### Controlling IPV
+
+```{r}
+results_ipv_race_sup_controlling <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race_sup", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-race-sup
+#| fig-cap: "Controlled Effect of Race on controlling IPV by Specification"
+
+make_plot(results_ipv_race_sup_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+### Physical IPV
+
+```{r}
+results_ipv_race_sup_physical <- ipv_results |> 
+  dplyr::filter(comp == "ipv_race_sup", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-race-sup
+#| fig-cap: "Controlled Effect of Race on physical IPV by Specification"
+
+make_plot(results_ipv_race_sup_physical, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+## Supplement to hypothesis 4: Total and direct effect of race on IPV according to mediation model
+
+### Total effect
+
+```{r}
+results_med_TE <- mediation_results |> 
+  dplyr::filter(term == "TE") |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-mediation-TE
+#| fig-cap: "Total Effect of Race on IPV by Specification"
+
+make_plot(results_med_TE, m_params = mediation_params, outcome.omit = FALSE)
+```
+
+#### Total IPV
+
+```{r}
+results_mediation_TE_total <- mediation_results |> 
+  dplyr::filter(term == "TE", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-total-ipv-mediation-TE
+#| fig-cap: "Total Effect of Race on total IPV through Informal Support by Specification"
+
+make_plot(results_mediation_TE_total, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Emotional IPV
+
+```{r}
+results_mediation_TE_emotional <- mediation_results |> 
+  dplyr::filter(term == "TE", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-mediation-TE
+#| fig-cap: "Total Effect of Race on emotional IPV through Informal Support by Specification"
+
+make_plot(results_mediation_TE_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Controlling IPV
+
+```{r}
+results_mediation_TE_controlling <- mediation_results |> 
+  dplyr::filter(term == "TE", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-mediation-TE
+#| fig-cap: "Total Effect of Race on controlling IPV through Informal Support by Specification"
+
+make_plot(results_mediation_TE_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Physical IPV
+
+```{r}
+results_mediation_TE_physical <- mediation_results |> 
+  dplyr::filter(term == "TE", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-mediation-TE
+#| fig-cap: "Total Effect of Race on physical IPV through Informal Support by Specification"
+
+make_plot(results_mediation_TE_physical, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+### Direct effect
+
+```{r}
+results_med_DE <- mediation_results |> 
+  dplyr::filter(term == "DE") |> 
+  dplyr::arrange(estimate) %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-mediation-DE
+#| fig-cap: "Direct Effect of Race on IPV by Specification"
+
+make_plot(results_med_DE, m_params = mediation_params, outcome.omit = FALSE)
+```
+
+#### Total IPV
+
+```{r}
+results_mediation_DE_total <- mediation_results |> 
+  dplyr::filter(term == "DE", outcome == "total") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-total-ipv-mediation-DE
+#| fig-cap: "Direct Effect of Race on total IPV through Informal Support by Specification"
+
+make_plot(results_mediation_DE_total, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Emotional IPV
+
+```{r}
+results_mediation_DE_emotional <- mediation_results |> 
+  dplyr::filter(term == "DE", outcome == "emotional") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-emotional-ipv-mediation-DE
+#| fig-cap: "Direct Effect of Race on emotional IPV through Informal Support by Specification"
+
+make_plot(results_mediation_DE_emotional, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Controlling IPV
+
+```{r}
+results_mediation_DE_controlling <- mediation_results |> 
+  dplyr::filter(term == "DE", outcome == "controlling") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-controlling-ipv-mediation-DE
+#| fig-cap: "Direct Effect of Race on controlling IPV through Informal Support by Specification"
+
+make_plot(results_mediation_DE_controlling, m_params = ipv_params, outcome.omit = TRUE)
+```
+
+#### Physical IPV
+
+```{r}
+results_mediation_DE_physical <- mediation_results |> 
+  dplyr::filter(term == "DE", outcome == "physical") %>% 
+  dplyr::mutate(order = 1:nrow(.))
+```
+
+```{r}
+#| label: fig-physical-ipv-mediation-DE
+#| fig-cap: "Direct Effect of Race on physical IPV through Informal Support by Specification"
+
+make_plot(results_mediation_DE_physical, m_params = ipv_params, outcome.omit = TRUE)
 ```
 
 # Supplementary tables
 
-## Total effect
+## Effect of race on IPV (Black - White)
 
 All specifications, focusing on the inference about the direction of the effect:
 
 ```{r}
-mediation_results_TE |> 
+results_ipv_race |> 
   dplyr::select(
-    names(m_params),
+    universe = .universe,
+    names(ipv_params),
     estimate, p.value
   ) |> 
   dplyr::mutate(
@@ -653,74 +878,186 @@ mediation_results_TE |>
       p.value < .05 & estimate < 0 ~ "White higher IPV"
     )
   ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
   rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
   ) 
 ```
 
-## Direct effect
+## Effect of race on informal support
 
 All specifications, focusing on the inference about the direction of the effect:
 
 ```{r}
-mediation_results_DE |> 
+results_sup_race |> 
   dplyr::select(
-    names(m_params),
+    universe = .universe,
+    names(ss_params),
     estimate, p.value
   ) |> 
   dplyr::mutate(
     inference = dplyr::case_when(
       p.value >= .05 ~ "No difference",
-      p.value < .05 & estimate > 0 ~ "Black higher IPV",
-      p.value < .05 & estimate < 0 ~ "White higher IPV"
+      p.value < .05 & estimate > 0 ~ "Black higher informal support",
+      p.value < .05 & estimate < 0 ~ "White higher informal support"
     )
   ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
   rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 6, format.custom = "format.fun"
   ) 
 ```
 
-## Indirect effect
+## Controlled effect of informal support on IPV
 
 All specifications, focusing on the inference about the direction of the effect:
 
 ```{r}
-mediation_results_IE |> 
+results_ipv_sup_race |> 
   dplyr::select(
-    names(m_params),
-    estimate, p.value
-  ) |> 
-  dplyr::mutate(
-    inference = dplyr::case_when(
-      p.value >= .05 ~ "No mediation",
-      p.value < .05 & estimate > 0 ~ "Black higher IPV through effect on social support",
-      p.value < .05 & estimate < 0 ~ "White higher IPV through effect on social support"
-    )
-  ) |> 
-  rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
-  ) 
-```
-
-## Effect of race on social support (Black - White)
-
-All specifications, focusing on the inference about the direction of the effect:
-
-```{r}
-results_arranged |> 
-  dplyr::select(
-    names(m_params),
+    universe = .universe,
+    names(ipv_params),
     estimate, p.value
   ) |> 
   dplyr::mutate(
     inference = dplyr::case_when(
       p.value >= .05 ~ "No difference",
-      p.value < .05 & estimate > 0 ~ "Black higher social support",
-      p.value < .05 & estimate < 0 ~ "White higher social support"
+      p.value < .05 & estimate > 0 ~ "Support associated with more IPV",
+      p.value < .05 & estimate < 0 ~ "Support associated with less IPV"
     )
   ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
   rempsyc::nice_table(
-    note = "* p < .05, ** p < .01, *** p < .001"
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
+  ) 
+```
+
+## Controlled effect of race on IPV
+
+All specifications, focusing on the inference about the direction of the effect:
+
+```{r}
+results_ipv_race_sup |> 
+  dplyr::select(
+    universe = .universe,
+    names(ipv_params),
+    estimate, p.value
+  ) |> 
+  dplyr::mutate(
+    inference = dplyr::case_when(
+      p.value >= .05 ~ "No difference",
+      p.value < .05 & estimate > 0 ~ "Black more IPV",
+      p.value < .05 & estimate < 0 ~ "White more IPV"
+    )
+  ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
+  rempsyc::nice_table(
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
+  ) 
+```
+
+## Indirect effect of race on IPV
+
+```{r}
+results_med_IE |> 
+  dplyr::select(
+    universe = .universe,
+    names(ipv_params),
+    estimate, p.value
+  ) |> 
+  dplyr::mutate(
+    inference = dplyr::case_when(
+      p.value >= .05 ~ "No difference",
+      p.value < .05 & estimate > 0 ~ "Black more IPV through informal support",
+      p.value < .05 & estimate < 0 ~ "White more IPV through infromal support"
+    )
+  ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
+  rempsyc::nice_table(
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
+  ) 
+```
+
+## Total effect of race on IPV
+
+From the mediation model.
+
+```{r}
+results_med_TE |> 
+  dplyr::select(
+    universe = .universe,
+    names(ipv_params),
+    estimate, p.value
+  ) |> 
+  dplyr::mutate(
+    inference = dplyr::case_when(
+      p.value >= .05 ~ "No difference",
+      p.value < .05 & estimate > 0 ~ "Black more IPV",
+      p.value < .05 & estimate < 0 ~ "White more IPV"
+    )
+  ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
+  rempsyc::nice_table(
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
+  ) 
+```
+
+## Direct effect of race on IPV
+
+From the mediation model.
+
+```{r}
+results_med_DE |> 
+  dplyr::select(
+    universe = .universe,
+    names(ipv_params),
+    estimate, p.value
+  ) |> 
+  dplyr::mutate(
+    inference = dplyr::case_when(
+      p.value >= .05 ~ "No difference",
+      p.value < .05 & estimate > 0 ~ "Black more IPV",
+      p.value < .05 & estimate < 0 ~ "White more IPV"
+    )
+  ) |> 
+  dplyr::rename_with(
+    .fn = ~ paste0("Specification option.", .x),
+    .cols = -c(universe, estimate, p.value, inference)
+  ) %>%
+  rempsyc::nice_table(
+    note = "* p < .05, ** p < .01, *** p < .001",
+    separate.header = TRUE, italics = seq(.),
+   col.format.custom = 7, format.custom = "format.fun"
   ) 
 ```
 

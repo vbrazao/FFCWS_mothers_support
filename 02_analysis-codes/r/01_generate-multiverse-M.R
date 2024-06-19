@@ -3,7 +3,7 @@
 # code that generates the multiverse analysis and saves the results
 
 # packages ----------------------------------------------------------------
-packages <- c("tidyverse", "broom", "multiverse", "srvyr", "marginaleffects", "survey", "future", "beepr")
+packages <- c("tidyverse", "broom", "multiverse", "srvyr", "survey", "mediation","future", "beepr")
 groundhog_day <- "2024-04-22"
 
 # (install and) load package versions available on the specified day to try
@@ -41,7 +41,6 @@ multiverse::inside(
       branch(
         proportion,
         "continuous" ~ dat,
-        "binomial" ~ dat |> dplyr::mutate(informal_support_max = 3),
         "binary" ~ dat |> dplyr::mutate(
           informal_support_prop = ifelse(informal_support_prop == 1, 1, 0),
           ipv_prop = ifelse(ipv_prop == 0, 0, 1),
@@ -63,7 +62,7 @@ multiverse::inside(
         mse = TRUE
       )
     
-    model.sup.race <- branch(
+    model.m <- branch(
       weights,
       "weighted" ~ survey::svyglm(
         formula = informal_support_prop ~ branch(
@@ -78,14 +77,7 @@ multiverse::inside(
         family = branch(
           proportion,
           "continuous" ~ "gaussian",
-          "binomial" ~ "binomial",
           "binary" ~ "binomial"
-        ),
-        weights = branch(
-          proportion,
-          "continuous" ~ NULL,
-          "binary" ~ NULL,
-          "binomial" ~ informal_support_max
         )
       ),
       "unweighted" ~ glm(
@@ -101,34 +93,107 @@ multiverse::inside(
         family = branch(
           proportion,
           "continuous" ~ "gaussian",
-          "binomial" ~ "binomial",
           "binary" ~ "binomial"
-        ), 
-        weights = branch(
-          proportion,
-          "continuous" ~ NULL,
-          "binary" ~ NULL,
-          "binomial" ~ informal_support_max
         )
       )
     )
     
-    comp_race <- marginaleffects::avg_comparisons(
-      model.sup.race,
-      variables = "m_race",
-      vcov = branch(
+    model.y <- branch(
+      weights,
+      "weighted" ~ survey::svyglm(
+        formula = branch(
+          outcome,
+          "total" ~ ipv_prop,
+          "physical" ~ ipv_physical_prop,
+          "emotional" ~ ipv_emotional_prop,
+          "controlling" ~ ipv_controlling_prop
+        ) ~ informal_support_prop + branch(
+          covariates,
+          "adjusted" ~ m_race + 
+            m_age + m_education + m_alcohol + m_drugs +
+            m_employment + m_children + m_household_income +
+            m_home + m_welfare_last_year + m_health + m_religious,
+          "unadjusted" ~ m_race
+        ),
+        design = dat_design,
+        family = branch(
+          proportion,
+          "continuous" ~ "gaussian",
+          "binary" ~ "binomial"
+        )
+      ),
+      "unweighted" ~ glm(
+        formula = branch(
+          outcome,
+          "total" ~ ipv_prop,
+          "physical" ~ ipv_physical_prop,
+          "emotional" ~ ipv_emotional_prop,
+          "controlling" ~ ipv_controlling_prop
+        ) ~ informal_support_prop + branch(
+          covariates,
+          "adjusted" ~ m_race + 
+            m_age + m_education + m_alcohol + m_drugs +
+            m_employment + m_children + m_household_income +
+            m_home + m_welfare_last_year + m_health + m_religious,
+          "unadjusted" ~ m_race
+        ),
+        data = dat,
+        family = branch(
+          proportion,
+          "continuous" ~ "gaussian",
+          "binary" ~ "binomial"
+        )
+      )
+    )
+    
+    med.out <- mediation::mediate(
+      model.m = model.m,
+      model.y = model.y,
+      sims = 2000,
+      treat = "m_race",
+      mediator = "informal_support_prop", 
+      robustSE = branch(
         proportion,
         "continuous" ~ branch(
           weights,
-          "weighted" ~ NULL,
-          "unweighted" ~ "HC"
+          "weighted" ~ FALSE,
+          "unweighted" ~ TRUE
         ),
-        "binomial" ~ NULL,
-        "binary" ~ NULL
+        "binary" ~ FALSE
       )
-    ) |> broom::tidy() |>
-      dplyr::mutate(comp = "race")
-
+    )
+    
+    untidy_summary_med_out <- summary(med.out)
+    
+    summary_total_effect <- tibble::tibble(
+      term = "total effect",
+      estimate = untidy_summary_med_out$tau.coef,
+      p.value = untidy_summary_med_out$tau.p,
+      conf.low = untidy_summary_med_out$tau.ci[[1]],
+      conf.high = untidy_summary_med_out$tau.ci[[2]],
+    )
+    
+    summary_direct_effect <- tibble::tibble(
+      term = "direct effect",
+      estimate = untidy_summary_med_out$z.avg,
+      p.value = untidy_summary_med_out$z.avg.p,
+      conf.low = untidy_summary_med_out$z.avg.ci[[1]],
+      conf.high = untidy_summary_med_out$z.avg.ci[[2]],
+    )
+    
+    summary_indirect_effect <- tibble::tibble(
+      term = "indirect effect",
+      estimate = untidy_summary_med_out$d.avg,
+      p.value = untidy_summary_med_out$d.avg.p,
+      conf.low = untidy_summary_med_out$d.avg.ci[[1]],
+      conf.high = untidy_summary_med_out$d.avg.ci[[2]],
+    )
+    
+    summary_med_out <- dplyr::bind_rows(
+      summary_total_effect,
+      summary_direct_effect,
+      summary_indirect_effect
+    )
   }
 )
 
@@ -140,15 +205,21 @@ multiverse::execute_multiverse(M, parallel = TRUE)
 # store all the analyses
 multi_results <- multiverse::expand(M)
 
-# to retrieve just the relevant results
-comp_results <- multi_results |>
-  dplyr::mutate(comp_race = purrr::map(.results, "comp_race")) |>
-  tidyr::unnest(cols = comp_race) |> 
+# to retrieve just the mediation results
+multi_mediation_results <- multi_results |>
+  dplyr::mutate(summary_med_out = purrr::map(.results, "summary_med_out")) |>
+  tidyr::unnest(cols = summary_med_out) |> 
+  dplyr::mutate(
+    term = dplyr::case_when(
+      term == "indirect effect" ~ "IE",
+      term == "direct effect" ~ "DE",
+      term == "total effect" ~ "TE"
+    )
+  ) |> 
   # remove columns that take too much space and are saved with the full results
   dplyr::select(
     -c(.parameter_assignment, .code, .results, .errors)
   )
-
 
 # store the parameters
 multi_parameters <- multiverse::parameters(M)
@@ -157,18 +228,18 @@ multi_parameters <- multiverse::parameters(M)
 # takes a little bit
 saveRDS(
   object = multi_results,
-  file = here::here("02_analysis-codes", "outputs", "multiverse_results_SS.RDS")
+  file = here::here("02_analysis-codes", "outputs", "multiverse_M_results.RDS")
 )
 
 saveRDS(
-  object = comp_results,
-  file = here::here("02_analysis-codes", "outputs", "multi_ss_results.RDS")
+  object = multi_mediation_results,
+  file = here::here("02_analysis-codes", "outputs", "multi_mediation_results.RDS")
 )
 
 # save the parameters
 saveRDS(
   object = multi_parameters,
-  file = here::here("02_analysis-codes", "outputs", "multiverse_parameters_SS.RDS")
+  file = here::here("02_analysis-codes", "outputs", "multiverse_M_parameters.RDS")
 )
 
 # stop parallelization
